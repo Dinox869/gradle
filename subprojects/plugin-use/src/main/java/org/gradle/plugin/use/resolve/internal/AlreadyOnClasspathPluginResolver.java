@@ -17,6 +17,7 @@
 package org.gradle.plugin.use.resolve.internal;
 
 import org.gradle.api.internal.initialization.ClassLoaderScope;
+import org.gradle.api.internal.plugins.DefaultPluginManager;
 import org.gradle.api.internal.plugins.PluginDescriptorLocator;
 import org.gradle.api.internal.plugins.PluginInspector;
 import org.gradle.api.internal.plugins.PluginRegistry;
@@ -79,6 +80,6 @@ public class AlreadyOnClasspathPluginResolver implements PluginResolver {
     }
 
     private boolean isCorePlugin(PluginId pluginId) {
-        return corePluginRegistry.lookup(pluginId) != null;
+        return pluginId.getNamespace() == null || pluginId.getNamespace().equals(DefaultPluginManager.CORE_PLUGIN_NAMESPACE);
     }
 }

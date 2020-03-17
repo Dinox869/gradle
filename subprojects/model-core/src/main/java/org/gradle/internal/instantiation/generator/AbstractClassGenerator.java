@@ -361,6 +361,11 @@ abstract class AbstractClassGenerator implements ClassGenerator {
             MapProperty.class.isAssignableFrom(type);
     }
 
+    private static boolean isManagedProperty(PropertyMetadata property) {
+        return property.isReadable() && property.setters.isEmpty() && (MANAGED_PROPERTY_TYPES.contains(property.getType()) ||
+            property.getMainGetter().method.getAnnotation(Nested.class) != null);
+    }
+
     protected class GeneratedClassImpl implements GeneratedClass<Object> {
         private final Class<?> generatedClass;
         private final Class<?> outerType;
@@ -880,9 +885,10 @@ abstract class AbstractClassGenerator implements ClassGenerator {
             }
             for (PropertyMetadata property : conventionProperties) {
                 visitor.applyConventionMappingToProperty(property);
+                boolean managedType = isManagedProperty(property);
                 for (MethodMetadata getter : property.getOverridableGetters()) {
-                    boolean isPropertyType = property.setters.isEmpty() && isPropertyProperty(getter.getReturnType());
-                    visitor.applyConventionMappingToGetter(property, getter, isPropertyType);
+                    boolean attachOwner = managedType && (MANAGED_PROPERTY_TYPES.contains(getter.getReturnType()) || getter.method.getAnnotation(Nested.class) != null);
+                    visitor.applyConventionMappingToGetter(property, getter, attachOwner);
                 }
                 for (Method setter : property.getOverridableSetters()) {
                     visitor.applyConventionMappingToSetter(property, setter);
@@ -894,11 +900,21 @@ abstract class AbstractClassGenerator implements ClassGenerator {
     private static class ManagedPropertiesHandler extends ClassGenerationHandler {
         private final List<PropertyMetadata> mutableProperties = new ArrayList<>();
         private final List<PropertyMetadata> readOnlyProperties = new ArrayList<>();
+        private final List<PropertyMetadata> eagerAttachProperties = new ArrayList<>();
         private boolean hasFields;
 
         @Override
         public void hasFields() {
             hasFields = true;
+        }
+
+        @Override
+        void visitProperty(PropertyMetadata property) {
+            if (isManagedProperty(property) && !property.getMainGetter().shouldOverride()) {
+                // Property is read-only and main getter is final, so attach eagerly in constructor
+                // If the getter is not final, then attach lazily in the getter
+                eagerAttachProperties.add(property);
+            }
         }
 
         @Override
@@ -920,12 +936,8 @@ abstract class AbstractClassGenerator implements ClassGenerator {
 
             // Property is readable and all getters and setters are abstract
             if (property.setters.isEmpty()) {
-                if (MANAGED_PROPERTY_TYPES.contains(property.getType())) {
-                    // Read-only property with managed type
-                    readOnlyProperties.add(property);
-                    return true;
-                } else if (property.getMainGetter().method.getAnnotation(Nested.class) != null) {
-                    // Read-only nested property with managed type
+                if (isManagedProperty(property)) {
+                    // Abstract read-only property with managed type
                     readOnlyProperties.add(property);
                     return true;
                 }
@@ -944,6 +956,9 @@ abstract class AbstractClassGenerator implements ClassGenerator {
             }
             if (!readOnlyProperties.isEmpty()) {
                 visitor.instantiatesNestedObjects();
+            }
+            for (PropertyMetadata property : eagerAttachProperties) {
+                visitor.attachDuringConstruction(property);
             }
         }
 
@@ -977,16 +992,6 @@ abstract class AbstractClassGenerator implements ClassGenerator {
         void visitProperty(PropertyMetadata property) {
             if (property.isReadable() && isPropertyProperty(property.getType())) {
                 propertyTyped.add(property);
-            }
-        }
-
-        @Override
-        void applyTo(ClassInspectionVisitor visitor) {
-            for (PropertyMetadata property : propertyTyped) {
-                if (!property.mainGetter.shouldOverride() && property.setters.isEmpty()) {
-                    // Property is read-only and main getter is final, so attach in constructor
-                    visitor.attachDuringConstruction(property);
-                }
             }
         }
 

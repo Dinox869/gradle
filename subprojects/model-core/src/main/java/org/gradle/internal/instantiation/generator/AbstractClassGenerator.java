@@ -362,8 +362,19 @@ abstract class AbstractClassGenerator implements ClassGenerator {
     }
 
     private static boolean isManagedProperty(PropertyMetadata property) {
-        return property.isReadable() && property.setters.isEmpty() && (MANAGED_PROPERTY_TYPES.contains(property.getType()) ||
-            property.getMainGetter().method.getAnnotation(Nested.class) != null);
+        return property.isReadOnly() && isManagedType(property);
+    }
+
+    private static boolean isAttachableProperty(PropertyMetadata property) {
+        return property.isReadOnly() && (isPropertyProperty(property.getType()) || property.getMainGetter().method.getAnnotation(Nested.class) != null);
+    }
+
+    private static boolean isManagedType(PropertyMetadata property) {
+        return (MANAGED_PROPERTY_TYPES.contains(property.getType()) || property.getMainGetter().method.getAnnotation(Nested.class) != null);
+    }
+
+    private static boolean isManagedType(MethodMetadata method) {
+        return (MANAGED_PROPERTY_TYPES.contains(method.getReturnType()) || method.method.getAnnotation(Nested.class) != null);
     }
 
     protected class GeneratedClassImpl implements GeneratedClass<Object> {
@@ -566,8 +577,16 @@ abstract class AbstractClassGenerator implements ClassGenerator {
             return name;
         }
 
+        public boolean isReadOnly() {
+            return mainGetter != null && setters.isEmpty();
+        }
+
         public boolean isReadable() {
             return mainGetter != null;
+        }
+
+        public boolean isWritable() {
+            return !setters.isEmpty();
         }
 
         public MethodMetadata getMainGetter() {
@@ -709,7 +728,7 @@ abstract class AbstractClassGenerator implements ClassGenerator {
 
         @Override
         void visitProperty(PropertyMetadata property) {
-            if (property.setters.isEmpty()) {
+            if (!property.isWritable()) {
                 return;
             }
             if (Iterable.class.isAssignableFrom(property.getType())) {
@@ -885,9 +904,9 @@ abstract class AbstractClassGenerator implements ClassGenerator {
             }
             for (PropertyMetadata property : conventionProperties) {
                 visitor.applyConventionMappingToProperty(property);
-                boolean managedType = isManagedProperty(property);
+                boolean managedProperty = isManagedProperty(property);
                 for (MethodMetadata getter : property.getOverridableGetters()) {
-                    boolean attachOwner = managedType && (MANAGED_PROPERTY_TYPES.contains(getter.getReturnType()) || getter.method.getAnnotation(Nested.class) != null);
+                    boolean attachOwner = managedProperty && isManagedType(getter);
                     visitor.applyConventionMappingToGetter(property, getter, attachOwner);
                 }
                 for (Method setter : property.getOverridableSetters()) {
@@ -910,7 +929,7 @@ abstract class AbstractClassGenerator implements ClassGenerator {
 
         @Override
         void visitProperty(PropertyMetadata property) {
-            if (isManagedProperty(property) && !property.getMainGetter().shouldOverride()) {
+            if (isAttachableProperty(property) && !property.getMainGetter().shouldOverride()) {
                 // Property is read-only and main getter is final, so attach eagerly in constructor
                 // If the getter is not final, then attach lazily in the getter
                 eagerAttachProperties.add(property);
@@ -930,22 +949,19 @@ abstract class AbstractClassGenerator implements ClassGenerator {
                     return false;
                 }
             }
-            if (property.getters.isEmpty()) {
-                return false;
-            }
 
             // Property is readable and all getters and setters are abstract
-            if (property.setters.isEmpty()) {
-                if (isManagedProperty(property)) {
-                    // Abstract read-only property with managed type
-                    readOnlyProperties.add(property);
-                    return true;
-                }
-                return false;
-            } else {
+            if (isManagedProperty(property)) {
+                // Abstract read-only property with managed type
+                readOnlyProperties.add(property);
+                return true;
+            } else if (property.isReadable() && property.isWritable()) {
                 // Mutable property
                 mutableProperties.add(property);
                 return true;
+            } else {
+                // Read only but unrecognized type
+                return false;
             }
         }
 

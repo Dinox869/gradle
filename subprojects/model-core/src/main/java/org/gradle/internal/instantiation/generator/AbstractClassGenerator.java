@@ -370,11 +370,11 @@ abstract class AbstractClassGenerator implements ClassGenerator {
     }
 
     private static boolean isManagedType(PropertyMetadata property) {
-        return (MANAGED_PROPERTY_TYPES.contains(property.getType()) || property.getMainGetter().method.getAnnotation(Nested.class) != null);
+        return MANAGED_PROPERTY_TYPES.contains(property.getType()) || property.getMainGetter().method.getAnnotation(Nested.class) != null;
     }
 
     private static boolean isManagedType(MethodMetadata method) {
-        return (MANAGED_PROPERTY_TYPES.contains(method.getReturnType()) || method.method.getAnnotation(Nested.class) != null);
+        return MANAGED_PROPERTY_TYPES.contains(method.getReturnType()) || method.method.getAnnotation(Nested.class) != null;
     }
 
     protected class GeneratedClassImpl implements GeneratedClass<Object> {
